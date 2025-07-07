@@ -5,6 +5,9 @@ on:
     paths:
       - '**.go'
       - '**.mod'
+  push:
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:  

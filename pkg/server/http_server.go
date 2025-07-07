@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -30,6 +31,16 @@ type HTTPServer struct {
 	nontlsserver  http.Server
 	customBanner  string
 	staticHandler http.Handler
+
+	// dynamic API doc endpoints
+	dynamicEndpoints map[string]dynamicEndpoint
+	dynMu            sync.RWMutex
+}
+
+type dynamicEndpoint struct {
+	Body        []byte
+	ContentType string
+	LastUpdated time.Time
 }
 
 type noopLogger struct {
@@ -70,8 +81,13 @@ func NewHTTPServer(options *Options) (*HTTPServer, error) {
 		}
 	}
 	router := &http.ServeMux{}
+
+	server.dynamicEndpoints = make(map[string]dynamicEndpoint)
+	router.Handle("/storerequest", server.corsMiddleware(server.authMiddleware(http.HandlerFunc(server.storeHandler))))
+	router.Handle("/apidocs/", server.corsMiddleware(http.HandlerFunc(server.apidocsHandler)))
 	router.Handle("/", server.logger(server.corsMiddleware(http.HandlerFunc(server.defaultHandler))))
 	router.Handle("/register", server.corsMiddleware(server.authMiddleware(http.HandlerFunc(server.registerHandler))))
+	router.Handle("/serve/", server.corsMiddleware(server.authMiddleware(http.HandlerFunc(server.deregisterHandler))))
 	router.Handle("/deregister", server.corsMiddleware(server.authMiddleware(http.HandlerFunc(server.deregisterHandler))))
 	router.Handle("/poll", server.corsMiddleware(server.authMiddleware(http.HandlerFunc(server.pollHandler))))
 	if server.options.EnableMetrics {
@@ -485,8 +501,8 @@ func jsonError(w http.ResponseWriter, err string, code int) {
 	jsonBody(w, "error", err, code)
 }
 
-func jsonMsg(w http.ResponseWriter, err string, code int) {
-	jsonBody(w, "message", err, code)
+func jsonMsg(w http.ResponseWriter, msg string, code int) {
+	jsonBody(w, "message", msg, code)
 }
 
 func (h *HTTPServer) authMiddleware(next http.Handler) http.Handler {
@@ -514,4 +530,68 @@ func (h *HTTPServer) metricsHandler(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	_ = jsoniter.NewEncoder(w).Encode(interactMetrics)
+}
+
+// storeHandler is a handler for /storerequest endpoint
+func (h *HTTPServer) storeHandler(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	type storeReq struct {
+		Body        string `json:"body"`
+		ContentType string `json:"content_type"`
+		SubURL      string `json:"suburl"`
+	}
+	var sreq storeReq
+	err := jsoniter.NewDecoder(req.Body).Decode(&sreq)
+	if err != nil || sreq.SubURL == "" {
+		jsonError(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+
+	h.dynMu.RLock()
+	de, exists := h.dynamicEndpoints[sreq.SubURL]
+	now := time.Now()
+	if exists {
+		if now.Sub(de.LastUpdated) < 24*time.Hour {
+			jsonError(w, "suburl can only be updated every 24 hours", http.StatusTooManyRequests)
+			h.dynMu.RUnlock()
+			return
+		}
+	}
+	h.dynMu.RUnlock()
+
+	h.dynMu.Lock()
+	h.dynamicEndpoints[sreq.SubURL] = dynamicEndpoint{
+		Body:        []byte(sreq.Body),
+		ContentType: sreq.ContentType,
+		LastUpdated: now,
+	}
+	h.dynMu.Unlock()
+
+	jsonMsg(w, "endpoint registered", http.StatusOK)
+}
+
+// apidocsHandler serves registered dynamic endpoints
+func (h *HTTPServer) apidocsHandler(w http.ResponseWriter, req *http.Request) {
+	// URL: /apidocs/{suburl}
+	path := strings.TrimPrefix(req.URL.Path, "/apidocs/")
+	if path == "" {
+		jsonError(w, "no suburl provided", http.StatusNotFound)
+		return
+	}
+
+	h.dynMu.RLock()
+	de, ok := h.dynamicEndpoints[path]
+	h.dynMu.RUnlock()
+	if !ok {
+		jsonError(w, "not found", http.StatusNotFound)
+		return
+	}
+	if de.ContentType != "" {
+		w.Header().Set("Content-Type", de.ContentType)
+	}
+	w.WriteHeader(http.StatusOK)
+	w.Write(de.Body)
 }

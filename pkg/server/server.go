@@ -136,9 +136,9 @@ func (options *Options) URLReflection(URL string) string {
 // getURLIDComponent returns the interactsh ID
 func (options *Options) getURLIDComponent(URL string) string {
 	parts := strings.Split(URL, ".")
-
+	// ignore the domain parts
 	var randomID string
-	for _, part := range parts {
+	for _, part := range parts[:len(parts)-2] {
 		for scanChunk := range stringsutil.SlideWithLength(part, options.GetIdLength()) {
 			if options.isCorrelationID(scanChunk) {
 				randomID = part
