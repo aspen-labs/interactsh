@@ -161,17 +161,20 @@ func (h *HTTPServer) logger(handler http.Handler) http.HandlerFunc {
 		}
 
 		if h.options.ScanEverywhere {
-			chunks := stringsutil.SplitAny(reqString, ".\n\t\"'")
+			chunks := stringsutil.SplitAny(reqString, "\n\t\"'/")
 			for _, chunk := range chunks {
 				for part := range stringsutil.SlideWithLength(chunk, h.options.GetIdLength()) {
 					normalizedPart := strings.ToLower(part)
 					if h.options.isCorrelationID(normalizedPart) {
-						h.handleInteraction(normalizedPart, part, reqString, respString, host)
+						fullID := chunk
+						h.handleInteraction(normalizedPart, fullID, reqString, respString, host)
 					}
 				}
 			}
 		} else {
-			parts := strings.Split(r.Host, ".")
+			url := r.Host + r.URL.String()
+			gologger.Debug().Msgf("Scanning in url %s, host %s, urlhost: %s, path %s\n", url, r.Host, r.URL.Host, r.URL.Path)
+			parts := stringsutil.SplitAny(url, ".\n\t/")
 			for i, part := range parts {
 				for partChunk := range stringsutil.SlideWithLength(part, h.options.GetIdLength()) {
 					normalizedPartChunk := strings.ToLower(partChunk)

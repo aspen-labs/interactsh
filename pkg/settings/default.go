@@ -1,7 +1,7 @@
 package settings
 
 const (
-	CorrelationIdLengthDefault      = 20
-	CorrelationIdNonceLengthDefault = 13
+	CorrelationIdLengthDefault      = 10
+	CorrelationIdNonceLengthDefault = 0
 	StorePayloadFileDefault         = "interactsh_payload.txt"
 )

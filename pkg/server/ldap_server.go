@@ -99,8 +99,9 @@ func (ldapServer *LDAPServer) handleSearch(w ldap.ResponseWriter, m *ldap.Messag
 	var message strings.Builder
 	message.WriteString("Type=Search\n")
 	baseObject := r.BaseObject()
+	filter := r.FilterString()
 	message.WriteString(fmt.Sprintf("BaseDn=%s\n", baseObject))
-	message.WriteString(fmt.Sprintf("Filter=%s\n", r.Filter()))
+	message.WriteString(fmt.Sprintf("Filter=%s\n", filter))
 	message.WriteString(fmt.Sprintf("FilterString=%s\n", r.FilterString()))
 	message.WriteString(fmt.Sprintf("Attributes=%s\n", r.Attributes()))
 	message.WriteString(fmt.Sprintf("TimeLimit=%d\n", r.TimeLimit().Int()))
@@ -116,8 +117,10 @@ func (ldapServer *LDAPServer) handleSearch(w ldap.ResponseWriter, m *ldap.Messag
 	w.Write(e)
 	res := ldap.NewSearchResultDoneResponse(ldap.LDAPResultSuccess)
 	w.Write(res)
-
-	for _, part := range stringsutil.SplitAny(string(baseObject), "=,") {
+	searchString := string(baseObject) + "," + string(filter)
+	gologger.Debug().Msgf("Searching ladp interaction in msg: %s, base: %s, for %s, searchString: %s",
+		m.String(), baseObject, filter, searchString)
+	for _, part := range stringsutil.SplitAny(searchString, "=,") {
 		partChunks := strings.Split(part, ".")
 		for i, partChunk := range partChunks {
 			for scanChunk := range stringsutil.SlideWithLength(partChunk, ldapServer.options.GetIdLength()) {

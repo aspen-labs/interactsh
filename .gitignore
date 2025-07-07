@@ -6,3 +6,5 @@ cmd/interactsh-server/interactsh-server
 cmd/interactsh-client/interactsh-client
 *.exe
 dist/
+cmd/interactsh-server/server
+cmd/interactsh-client/client
