@@ -134,3 +134,5 @@ require (
 	google.golang.org/protobuf v1.33.0 // indirect
 	gopkg.in/djherbis/times.v1 v1.3.0 // indirect
 )
+
+replace github.com/mholt/archiver/ => github.com/mholt/archives/ v0.1.3
