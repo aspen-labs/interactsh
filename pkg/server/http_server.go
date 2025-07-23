@@ -593,5 +593,7 @@ func (h *HTTPServer) apidocsHandler(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", de.ContentType)
 	}
 	w.WriteHeader(http.StatusOK)
-	w.Write(de.Body)
+	if _, err := w.Write(de.Body); err != nil {
+      log.Printf("write error: %v", err)
+  }
 }
