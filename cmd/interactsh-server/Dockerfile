@@ -1,6 +1,7 @@
 FROM python:3.8-alpine as compile
 WORKDIR /opt
 RUN apk add --no-cache git gcc musl-dev python3-dev libffi-dev openssl-dev cargo
+RUN apk upgrade --no-cache openssl curl libcurl
 RUN python3 -m pip install virtualenv
 RUN virtualenv -p python venv
 ENV PATH="/opt/venv/bin:$PATH"
