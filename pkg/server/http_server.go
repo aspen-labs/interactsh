@@ -1,7 +1,6 @@
 package server
 
 import (
-	"bytes"
 	"crypto/tls"
 	"encoding/base64"
 	"fmt"
@@ -26,21 +25,12 @@ import (
 // HTTPServer is a http server instance that listens both
 // TLS and Non-TLS based servers.
 type HTTPServer struct {
-	options       *Options
-	tlsserver     http.Server
-	nontlsserver  http.Server
-	customBanner  string
-	staticHandler http.Handler
-
-	// dynamic API doc endpoints
-	dynamicEndpoints map[string]dynamicEndpoint
-	dynMu            sync.RWMutex
-}
-
-type dynamicEndpoint struct {
-	Body        []byte
-	ContentType string
-	LastUpdated time.Time
+	options         *Options
+	tlsserver       http.Server
+	nontlsserver    http.Server
+	customBanner    string
+	defaultResponse string
+	staticHandler   http.Handler
 }
 
 type noopLogger struct {
@@ -74,10 +64,20 @@ func NewHTTPServer(options *Options) (*HTTPServer, error) {
 	// If custom index, read the custom index file and serve it.
 	// Supports {DOMAIN} placeholders.
 	if options.HTTPIndex != "" {
-		abs, _ := filepath.Abs(options.HTTPDirectory)
+		abs, _ := filepath.Abs(options.HTTPIndex)
 		gologger.Info().Msgf("Using custom server index: %s", abs)
 		if data, err := os.ReadFile(options.HTTPIndex); err == nil {
 			server.customBanner = string(data)
+		}
+	}
+	// If default response file is specified, read it and serve for all requests.
+	// This takes priority over all other response options.
+	// Supports {DOMAIN} placeholders.
+	if options.DefaultHTTPResponseFile != "" {
+		abs, _ := filepath.Abs(options.DefaultHTTPResponseFile)
+		gologger.Info().Msgf("Using default HTTP response file for all requests: %s", abs)
+		if data, err := os.ReadFile(options.DefaultHTTPResponseFile); err == nil {
+			server.defaultResponse = string(data)
 		}
 	}
 	router := &http.ServeMux{}
@@ -93,8 +93,8 @@ func NewHTTPServer(options *Options) (*HTTPServer, error) {
 	if server.options.EnableMetrics {
 		router.Handle("/metrics", server.corsMiddleware(server.authMiddleware(http.HandlerFunc(server.metricsHandler))))
 	}
-	server.tlsserver = http.Server{Addr: options.ListenIP + fmt.Sprintf(":%d", options.HttpsPort), Handler: router, ErrorLog: log.New(&noopLogger{}, "", 0)}
-	server.nontlsserver = http.Server{Addr: options.ListenIP + fmt.Sprintf(":%d", options.HttpPort), Handler: router, ErrorLog: log.New(&noopLogger{}, "", 0)}
+	server.tlsserver = http.Server{Addr: formatAddress(options.ListenIP, options.HttpsPort), Handler: router, ErrorLog: log.New(&noopLogger{}, "", 0)}
+	server.nontlsserver = http.Server{Addr: formatAddress(options.ListenIP, options.HttpPort), Handler: router, ErrorLog: log.New(&noopLogger{}, "", 0)}
 	return server, nil
 }
 
@@ -155,7 +155,7 @@ func (h *HTTPServer) logger(handler http.Handler) http.HandlerFunc {
 					ID := domain
 					host, _, _ := net.SplitHostPort(r.RemoteAddr)
 					interaction := &Interaction{
-						Protocol:      "http",
+						Protocol:      httpProtocol(r),
 						UniqueID:      r.Host,
 						FullId:        r.Host,
 						RawRequest:    reqString,
@@ -163,12 +163,12 @@ func (h *HTTPServer) logger(handler http.Handler) http.HandlerFunc {
 						RemoteAddress: host,
 						Timestamp:     time.Now(),
 					}
-					buffer := &bytes.Buffer{}
-					if err := jsoniter.NewEncoder(buffer).Encode(interaction); err != nil {
+					data, err := jsoniter.Marshal(interaction)
+					if err != nil {
 						gologger.Warning().Msgf("Could not encode root tld http interaction: %s\n", err)
 					} else {
-						gologger.Debug().Msgf("Root TLD HTTP Interaction: \n%s\n", buffer.String())
-						if err := h.options.Storage.AddInteractionWithId(ID, buffer.Bytes()); err != nil {
+						gologger.Debug().Msgf("Root TLD HTTP Interaction: \n%s\n", string(data))
+						if err := h.options.Storage.AddInteractionWithId(ID, data); err != nil {
 							gologger.Warning().Msgf("Could not store root tld http interaction: %s\n", err)
 						}
 					}
@@ -183,7 +183,7 @@ func (h *HTTPServer) logger(handler http.Handler) http.HandlerFunc {
 					normalizedPart := strings.ToLower(part)
 					if h.options.isCorrelationID(normalizedPart) {
 						fullID := chunk
-						h.handleInteraction(normalizedPart, fullID, reqString, respString, host)
+						h.handleInteraction(r, normalizedPart, fullID, reqString, respString, host)
 					}
 				}
 			}
@@ -199,7 +199,7 @@ func (h *HTTPServer) logger(handler http.Handler) http.HandlerFunc {
 						if i+1 <= len(parts) {
 							fullID = strings.Join(parts[:i+1], ".")
 						}
-						h.handleInteraction(normalizedPartChunk, fullID, reqString, respString, host)
+						h.handleInteraction(r, normalizedPartChunk, fullID, reqString, respString, host)
 					}
 				}
 			}
@@ -207,11 +207,18 @@ func (h *HTTPServer) logger(handler http.Handler) http.HandlerFunc {
 	}
 }
 
-func (h *HTTPServer) handleInteraction(uniqueID, fullID, reqString, respString, hostPort string) {
+func httpProtocol(r *http.Request) string {
+	if r.TLS != nil {
+		return "https"
+	}
+	return "http"
+}
+
+func (h *HTTPServer) handleInteraction(r *http.Request, uniqueID, fullID, reqString, respString, hostPort string) {
 	correlationID := uniqueID[:h.options.CorrelationIdLength]
 
 	interaction := &Interaction{
-		Protocol:      "http",
+		Protocol:      httpProtocol(r),
 		UniqueID:      uniqueID,
 		FullId:        fullID,
 		RawRequest:    reqString,
@@ -219,13 +226,13 @@ func (h *HTTPServer) handleInteraction(uniqueID, fullID, reqString, respString, 
 		RemoteAddress: hostPort,
 		Timestamp:     time.Now(),
 	}
-	buffer := &bytes.Buffer{}
-	if err := jsoniter.NewEncoder(buffer).Encode(interaction); err != nil {
+	data, err := jsoniter.Marshal(interaction)
+	if err != nil {
 		gologger.Warning().Msgf("Could not encode http interaction: %s\n", err)
 	} else {
-		gologger.Debug().Msgf("HTTP Interaction: \n%s\n", buffer.String())
+		gologger.Debug().Msgf("HTTP Interaction: \n%s\n", string(data))
 
-		if err := h.options.Storage.AddInteraction(correlationID, buffer.Bytes()); err != nil {
+		if err := h.options.Storage.AddInteraction(correlationID, data); err != nil {
 			gologger.Warning().Msgf("Could not store http interaction: %s\n", err)
 		}
 	}
@@ -274,6 +281,13 @@ func (h *HTTPServer) defaultHandler(w http.ResponseWriter, req *http.Request) {
 	}
 
 	reflection := h.options.URLReflection(req.Host)
+
+	// If default response is set, serve it for all requests (highest priority)
+	if h.defaultResponse != "" {
+		_, _ = fmt.Fprint(w, strings.ReplaceAll(h.defaultResponse, "{DOMAIN}", domain))
+		return
+	}
+
 	if stringsutil.HasPrefixI(req.URL.Path, "/s/") && h.staticHandler != nil {
 		if h.options.DynamicResp && len(req.URL.Query()) > 0 {
 			values := req.URL.Query()
@@ -298,24 +312,24 @@ func (h *HTTPServer) defaultHandler(w http.ResponseWriter, req *http.Request) {
 		h.staticHandler.ServeHTTP(w, req)
 	} else if req.URL.Path == "/" && reflection == "" {
 		if h.customBanner != "" {
-			fmt.Fprint(w, strings.ReplaceAll(h.customBanner, "{DOMAIN}", domain))
+			_, _ = fmt.Fprint(w, strings.ReplaceAll(h.customBanner, "{DOMAIN}", domain))
 		} else {
-			fmt.Fprintf(w, banner, domain)
+			_, _ = fmt.Fprintf(w, banner, domain)
 		}
 	} else if strings.EqualFold(req.URL.Path, "/robots.txt") {
-		fmt.Fprintf(w, "User-agent: *\nDisallow: / # %s", reflection)
+		_, _ = fmt.Fprintf(w, "User-agent: *\nDisallow: / # %s", reflection)
 	} else if stringsutil.HasSuffixI(req.URL.Path, ".json") {
-		fmt.Fprintf(w, "{\"data\":\"%s\"}", reflection)
+		_, _ = fmt.Fprintf(w, "{\"data\":\"%s\"}", reflection)
 		w.Header().Set("Content-Type", "application/json")
 	} else if stringsutil.HasSuffixI(req.URL.Path, ".xml") {
-		fmt.Fprintf(w, "<data>%s</data>", reflection)
+		_, _ = fmt.Fprintf(w, "<data>%s</data>", reflection)
 		w.Header().Set("Content-Type", "application/xml")
 	} else {
 		if h.options.DynamicResp && (len(req.URL.Query()) > 0 || stringsutil.HasPrefixI(req.URL.Path, "/b64_body:")) {
 			writeResponseFromDynamicRequest(w, req)
 			return
 		}
-		fmt.Fprintf(w, "<html><head></head><body>%s</body></html>", reflection)
+		_, _ = fmt.Fprintf(w, "<html><head></head><body>%s</body></html>", reflection)
 	}
 }
 
@@ -418,6 +432,14 @@ func (h *HTTPServer) deregisterHandler(w http.ResponseWriter, req *http.Request)
 		jsonError(w, fmt.Sprintf("could not remove id: %s", err), http.StatusBadRequest)
 		return
 	}
+	if h.options.RootTLD {
+		for _, domain := range h.options.Domains {
+			_ = h.options.Storage.RemoveConsumer(domain, r.CorrelationID)
+		}
+	}
+	if h.options.Token != "" {
+		_ = h.options.Storage.RemoveConsumer(h.options.Token, r.CorrelationID)
+	}
 	jsonMsg(w, "deregistration successful", http.StatusOK)
 	gologger.Debug().Msgf("Deregistered correlationID %s for key\n", r.CorrelationID)
 }
@@ -454,14 +476,14 @@ func (h *HTTPServer) pollHandler(w http.ResponseWriter, req *http.Request) {
 	var tlddata, extradata []string
 	if h.options.RootTLD {
 		for _, domain := range h.options.Domains {
-			interactions, _ := h.options.Storage.GetInteractionsWithId(domain)
+			interactions, _ := h.options.Storage.GetInteractionsWithIdForConsumer(domain, ID)
 			// root domains interaction are not encrypted
 			tlddata = append(tlddata, interactions...)
 		}
 	}
 	if h.options.Token != "" {
 		// auth token interactions are not encrypted
-		extradata, _ = h.options.Storage.GetInteractionsWithId(h.options.Token)
+		extradata, _ = h.options.Storage.GetInteractionsWithIdForConsumer(h.options.Token, ID)
 	}
 	response := &PollResponse{Data: data, AESKey: aesKey, TLDData: tlddata, Extra: extradata}
 

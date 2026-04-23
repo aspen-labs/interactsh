@@ -28,6 +28,7 @@
 # Features
 
 - DNS/HTTP(S)/SMTP(S)/LDAP Interaction
+- IPv4 and IPv6 support
 - CLI / Web / Burp / ZAP / Docker client
 - AES encryption with zero logging
 - Automatic ACME based Wildcard TLS w/ Auto Renewal
@@ -65,8 +66,8 @@ CONFIG:
    -t, -token string                        authentication token to connect protected interactsh server
    -pi, -poll-interval int                  poll interval in seconds to pull interaction data (default 5)
    -nf, -no-http-fallback                   disable http fallback registration
-   -cidl, -correlation-id-length int        length of the correlation id preamble (default 20)
-   -cidn, -correlation-id-nonce-length int  length of the correlation id nonce (default 13)
+   -cidl, -correlation-id-length int        length of the correlation id preamble (min 3, default 20)
+   -cidn, -correlation-id-nonce-length int  length of the correlation id nonce (min 3, default 13)
    -sf, -session-file string                store/read from session file
 
 FILTER:
@@ -118,7 +119,7 @@ You can configure your PDCP_API_KEY in two ways:
 This will generate a unique payload that can be used for OOB testing with minimal interaction information in the output.
 
 ```console
-interactsh-client
+$ interactsh-client
 
     _       __                       __       __  
    (_)___  / /____  _________ ______/ /______/ /_ 
@@ -144,7 +145,7 @@ interactsh-client
 `interactsh-client` with `-sf, -session-file` flag can be used store/read the current session information from user defined file which is useful to resume the same session to poll the interactions even after the client gets stopped or closed. 
 
 ```console
-interactsh-client -sf interact.session
+$ interactsh-client -sf interact.session
 
     _       __                       __       __  
    (_)___  / /____  _________ ______/ /______/ /_ 
@@ -171,7 +172,7 @@ interactsh-client -sf interact.session
 Running the `interactsh-client` in **verbose mode** (v) to see the whole request and response, along with an output file to analyze afterwards.
 
 ```console
-interactsh-client -v -o interactsh-logs.txt
+$ interactsh-client -v -o interactsh-logs.txt
 
     _       __                       __       __  
    (_)___  / /____  _________ ______/ /______/ /_ 
@@ -262,7 +263,7 @@ docker run projectdiscovery/interactsh-client:latest
 ```
 
 ```console
-docker run projectdiscovery/interactsh-client:latest
+$ docker run projectdiscovery/interactsh-client:latest
 
     _       __                       __       __  
    (_)___  / /____  _________ ______/ /______/ /_ 
@@ -276,9 +277,9 @@ docker run projectdiscovery/interactsh-client:latest
 [INF] c59e3crp82ke7bcnedq0cfjqdpeyyyyyn.oast.pro
 ```
 
-## Burp Suite Extension
+## Burp Suite Original Extension
 
-[interactsh-collaborator](https://github.com/wdahlenburg/interactsh-collaborator) is Burp Suite extension developed and maintained by [@wdahlenb](https://twitter.com/wdahlenb)
+[interactsh-collaborator](https://github.com/wdahlenburg/interactsh-collaborator) is an original Burp Suite interactsh extension developed and maintained by [@wdahlenb](https://twitter.com/wdahlenb)
 
 - Download latest JAR file from [releases](https://github.com/wdahlenburg/interactsh-collaborator/releases) page.
 - Open Burp Suite &rarr; Extender &rarr; Add &rarr; Java &rarr; Select JAR file &rarr; Next
@@ -286,6 +287,17 @@ docker run projectdiscovery/interactsh-client:latest
 - See the [interactsh-collaborator](https://github.com/wdahlenburg/interactsh-collaborator) project for more info.
 
 <img width="2032" alt="burp" src="https://user-images.githubusercontent.com/8293321/135176099-0e3fa01c-bdce-4f04-a94f-de0a34c7abf6.png">
+
+## Burp Suite Revised Extension
+
+[interactsh-collaborator-rev](https://github.com/TheArqsz/interactsh-collaborator-rev) is a revised version of the original Burp Suite interactsh extension and is developed and maintained by [@Arqsz](https://arqsz.net/)
+
+- Download latest JAR file from [releases](https://github.com/TheArqsz/interactsh-collaborator-rev/releases) page.
+- Open Burp Suite &rarr; Extender &rarr; Add &rarr; Java &rarr; Select JAR file &rarr; Next
+- New tab named **Interactsh** will be appeared upon successful installation.
+- See the [interactsh-collaborator-rev](https://github.com/TheArqsz/interactsh-collaborator-rev) project for more info.
+
+<img width="2032" alt="burp" src="https://github.com/TheArqsz/interactsh-collaborator-rev/blob/master/assets/interactsh-extension.png?raw=true">
 
 ## ZAP Add-On
 
@@ -338,17 +350,18 @@ Usage:
 Flags:
 INPUT:
    -d, -domain string[]                     single/multiple configured domain to use for server
-   -ip string                               public ip address to use for interactsh server
+   -ip string[]                             public ip address(es) to use for interactsh server (comma-separated,supports both IPv4 & IPv6)
    -lip, -listen-ip string                  public ip address to listen on (default "0.0.0.0")
    -e, -eviction int                        number of days to persist interaction data in memory (default 30)
    -ne, -no-eviction                        disable periodic data eviction from memory
+   -es, -eviction-strategy string           eviction strategy for interactions (sliding, fixed) (default "sliding")
    -a, -auth                                enable authentication to server using random generated token
    -t, -token string                        enable authentication to server using given token
    -acao-url string                         origin url to send in acao header to use web-client) (default "*")
    -sa, -skip-acme                          skip acme registration (certificate checks/handshake + TLS protocols will be disabled)
    -se, -scan-everywhere                    scan canary token everywhere
-   -cidl, -correlation-id-length int        length of the correlation id preamble (default 20)
-   -cidn, -correlation-id-nonce-length int  length of the correlation id nonce (default 13)
+   -cidl, -correlation-id-length int        length of the correlation id preamble (min 3, default 20)
+   -cidn, -correlation-id-nonce-length int  length of the correlation id nonce (min 3, default 13)
    -cert string                             custom certificate path
    -privkey string                          custom private key path
    -oih, -origin-ip-header string           HTTP header containing origin ip (interactsh behind a reverse proxy)
@@ -359,6 +372,7 @@ CONFIG:
    -dr, -dynamic-resp           enable setting up arbitrary response data
    -cr, -custom-records string  custom dns records YAML file for DNS server
    -hi, -http-index string      custom index file for http server
+   -dhr, -default-http-response string  file to serve for all http requests (takes priority over other options)
    -hd, -http-directory string  directory with files to serve with http server
    -ds, -disk                   disk based storage
    -dsp, -disk-path string      disk storage path
@@ -445,7 +459,7 @@ A number of needed flags are configured automatically to run `interactsh-server`
 ## Running Interactsh Server
 
 ```console
-interactsh-server -domain interact.sh
+$ interactsh-server -domain interact.sh
 
     _       __                       __       __  
    (_)___  / /____  _________ ______/ /______/ /_ 
@@ -470,7 +484,7 @@ interactsh-server -domain interact.sh
 Multiple domain names can be given in the same way as above to run the same interactsh server across multiple **configured domains**.
 
 ```console
-interactsh-server -d oast.pro,oast.me
+$ interactsh-server -d oast.pro,oast.me
 
     _       __                       __       __
    (_)___  / /____  _________ ______/ /______/ /_
@@ -491,6 +505,34 @@ interactsh-server -d oast.pro,oast.me
 [DNS] Listening on TCP 46.101.25.250:53
 [DNS] Listening on UDP 46.101.25.250:53
 ```
+
+## Interactsh Server with IPv4 and IPv6
+
+Interactsh server supports both IPv4 and IPv6 addresses. You can specify multiple IP addresses using the `-ip` flag, and the server will respond with the appropriate A (IPv4) or AAAA (IPv6) records in DNS responses.
+
+```console
+$ interactsh-server -d oast.pro -ip 192.0.2.1,2001:db8::1
+
+    _       __                       __       __
+   (_)___  / /____  _________ ______/ /______/ /_
+  / / __ \/ __/ _ \/ ___/ __ '/ ___/ __/ ___/ __ \
+ / / / / / /_/  __/ /  / /_/ / /__/ /_(__  ) / / /
+/_/_/ /_/\__/\___/_/   \__,_/\___/\__/____/_/ /_/ 1.0.5
+
+                projectdiscovery.io
+
+[INF] Configured IP addresses: 192.0.2.1, 2001:db8::1
+[INF] Listening with the following services:
+[HTTPS] Listening on TCP 46.101.25.250:443
+[HTTP] Listening on TCP 46.101.25.250:80
+[SMTPS] Listening on TCP 46.101.25.250:587
+[LDAP] Listening on TCP 46.101.25.250:389
+[SMTP] Listening on TCP 46.101.25.250:25
+[DNS] Listening on TCP 46.101.25.250:53
+[DNS] Listening on UDP 46.101.25.250:53
+```
+
+The server will automatically detect and categorize IPv4 and IPv6 addresses, returning appropriate DNS records based on the query type.
 
 <table>
 <td>
@@ -561,7 +603,7 @@ stream {
 **Configured Domains**
 
 ```console
-interactsh-server -d oast.pro,oast.me
+$ interactsh-server -d oast.pro,oast.me
 
     _       __                       __       __
    (_)___  / /____  _________ ______/ /______/ /_
@@ -587,7 +629,7 @@ interactsh-server -d oast.pro,oast.me
 
 Index page for http server can be customized while running custom interactsh server using `-http-index` flag.
 
-```console
+```bash
 interactsh-server -d hackwithautomation.com -http-index banner.html
 ```
 
@@ -602,7 +644,7 @@ Interactsh http server optionally enables file hosting to help in security testi
 
 To use this feature, `-http-directory` flag can be used which accepts diretory as input and files are served under `/s/` directory.
 
-```console
+```bash
 interactsh-server -d hackwithautomation.com -http-directory ./paylods
 ```
 
@@ -620,7 +662,7 @@ The following query parameter names are supported - `body`, `header`, `status` a
 - **delay** (response time)
 
 ```console
-curl -i 'https://hackwithautomation.com/x?status=307&body=this+is+example+body&delay=1&header=header1:value1&header=header1:value12'
+$ curl -i 'https://hackwithautomation.com/x?status=307&body=this+is+example+body&delay=1&header=header1:value1&header=header1:value12'
 
 HTTP/2 307 
 header1: value1
@@ -645,7 +687,7 @@ this is example body
 To enable `wildcard` interaction for configured Interactsh domain `wildcard` flag can be used with implicit authentication protection via the `auth` flag if the `token` flag is omitted.
 
 ```console
-interactsh-server -domain hackwithautomation.com -wildcard
+$ interactsh-server -domain hackwithautomation.com -wildcard
 
     _       __                       __       __  
    (_)___  / /____  _________ ______/ /______/ /_ 
@@ -666,12 +708,19 @@ interactsh-server -domain hackwithautomation.com -wildcard
 [DNS] Listening on UDP 157.230.223.165:53
 ```
 
+In wildcard mode, each connected client independently receives all interactions for the shared domain. The server keeps a buffer of recent interactions so that multiple clients can poll without missing data. By default, the buffer holds up to **10,000** interactions per shared key. This can be adjusted via the `INTERACTSH_MAX_SHARED_INTERACTIONS` environment variable:
+
+```console
+$ export INTERACTSH_MAX_SHARED_INTERACTIONS=50000
+$ interactsh-server -domain hackwithautomation.com -wildcard
+```
+
 ## LDAP Interaction
 
 As default, Interactsh server support LDAP interaction for the payload included in [search query](https://ldapwiki.com/wiki/LDAP%20Query%20Examples), additionally `ldap` flag can be used for complete logging.
 
 ```console
-interactsh-server -domain hackwithautomation.com -sa -ldap
+$ interactsh-server -domain hackwithautomation.com -sa -ldap
 
     _       __                       __       __  
    (_)___  / /____  _________ ______/ /______/ /_ 
@@ -696,7 +745,7 @@ The length of the interactsh payload is **33** by default, consisting of **20** 
 
 
 ```console
-interactsh-server -d hackwithautomation.com -cidl 4 -cidn 6
+$ interactsh-server -d hackwithautomation.com -cidl 4 -cidn 6
 
     _       __                       __       __  
    (_)___  / /____  _________ ______/ /______/ /_ 
@@ -720,7 +769,7 @@ interactsh-server -d hackwithautomation.com -cidl 4 -cidn 6
 **Note:** It is important and required to use same length on both side (**client** and **server**), otherwise co-relation will not work.
 
 ```console
-interactsh-client -s hackwithautomation.com -cidl 4 -cidn 6
+$ interactsh-client -s hackwithautomation.com -cidl 4 -cidn 6
 
     _       __                       __       __  
    (_)___  / /____  _________ ______/ /______/ /_ 
@@ -742,7 +791,7 @@ The [certmagic](https://github.com/caddyserver/certmagic) library is used by def
 
 
 ```console
-interactsh-server -d hackwithautomation.com -cert hackwithautomation.com.crt -privkey hackwithautomation.com.key
+$ interactsh-server -d hackwithautomation.com -cert hackwithautomation.com.crt -privkey hackwithautomation.com.key
 
     _       __                       __       __  
    (_)___  / /____  _________ ______/ /______/ /_ 
@@ -799,14 +848,14 @@ $ sudo interactsh-server -smb -skip-acme -debug -domain localhost
 ### Responder
 [Responder](https://github.com/lgandx/Responder) is wrapped in a docker container exposing various service ports via docker port forwarding. The interactions are retrieved by monitoring the shared log file `Responder-Session.log` in the temp folder. To use it on a self-hosted instance, it's necessary first to build the docker container and tag it as `interactsh`(docker daemon must be configured correctly and with port forwarding capabilities):
 
-```console
+```bash
 docker build . -t interactsh
 ```
 
 Then run the service with:
 
-```console
-$ sudo interactsh-server -responder -d localhost
+```bash
+sudo interactsh-server -responder -d localhost
 ```
 
 On default settings, the daemon listens on the following ports:
