@@ -8,7 +8,7 @@ RUN go build ./cmd/interactsh-server
 
 
 # Release
-FROM alpine:3.18.3
+FROM us-docker.pkg.dev/traceable-actions-386017/docker/rfcurated/alpine:3.23-v3
 RUN apk -U upgrade --no-cache \
     && apk add --no-cache bind-tools ca-certificates python3 libffi curl \
     && apk add --no-cache --virtual .build-deps python3-dev py3-pip py3-wheel libffi-dev build-base \
